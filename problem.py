@@ -80,6 +80,10 @@ def _distance(a: tuple, b: tuple) -> float:
     return math.sqrt((a1 - b1) ** 2 + (a2 - b2) ** 2)
 
 
+def _cut_off_value(f: float) -> float:
+    return math.ceil(f * 128) / 128
+
+
 def safe_shortest_path_length(g, s, t) -> int:
     try:
         return nx.shortest_path_length(g, s, t)
@@ -96,6 +100,7 @@ class RandomGeometricGraphProblem:
         self.__subproblems = []
         # self.__pu_process_tracker = PUInfo(getpid())
         self.__memory_usage = 0
+        self.__update_memory_usage()
 
     @property
     def initial_state(self) -> str:
@@ -106,12 +111,15 @@ class RandomGeometricGraphProblem:
         return tuple(self.__places_to_visit)
 
     def all_place_names(self) -> List[str]:
+        self.__update_memory_usage()
         return [n for n in self.__graph.nodes]
 
     def get_position_of(self, state: str) -> Tuple[float, float]:
+        self.__update_memory_usage()
         return self.__graph.nodes[state]['pos']
 
     def get_cost_of(self, state1: str, state2: str, cost_type: str) -> float:
+        self.__update_memory_usage()
         try:
             return self.__graph[state1][state2][cost_type]
         except:
@@ -121,7 +129,7 @@ class RandomGeometricGraphProblem:
         return self.__memory_usage
 
     def get_current_memory_usage(self):
-        return 0 # self.__pu_process_tracker.memory_info().rss
+        return 0 #self.__pu_process_tracker.memory_info().rss
 
     def __update_memory_usage(self):
         self.__memory_usage = max(self.__memory_usage, self.get_current_memory_usage())
@@ -144,38 +152,51 @@ class RandomGeometricGraphProblem:
         for a, b in geo_graph.edges:
             conn_type = self.__random.random()
             geo_dist_ab = _distance(geo_graph.nodes[a]['pos'], geo_graph.nodes[b]['pos'])
-            distance_ab = geo_dist_ab * (self.__random.random() * 0.4 + 1.2)
+            distance_ab = _cut_off_value(geo_dist_ab * (self.__random.random() * 0.4 + 1.2))
             speed_ab = .25 + self.__random.random() * .25
             a = names[a]
             b = names[b]
 
             if conn_type < 0.05:
-                named_graph.add_edge(a, b, road=distance_ab, time=distance_ab / speed_ab, fee=0)
+                named_graph.add_edge(a, b, road=distance_ab, time=_cut_off_value(distance_ab / speed_ab), fee=0)
             elif conn_type < 0.1:
-                named_graph.add_edge(b, a, road=distance_ab, time=distance_ab / speed_ab, fee=0)
+                named_graph.add_edge(b, a, road=distance_ab, time=_cut_off_value(distance_ab / speed_ab), fee=0)
             elif conn_type < 0.3:
                 distance_ba = geo_dist_ab * (self.__random.random() * 0.4 + 1.2)
-                named_graph.add_edges_from([(a, b, {'road': distance_ab, 'time': distance_ab / speed_ab, 'fee': 0}),
-                                            (b, a, {'road': distance_ba, 'time': distance_ba / speed_ab, 'fee': 0})])
+                named_graph.add_edges_from([(a, b, {'road': distance_ab,
+                                                    'time': _cut_off_value(distance_ab / speed_ab), 'fee': 0}),
+                                            (b, a, {'road': distance_ba,
+                                                    'time': _cut_off_value(distance_ba / speed_ab), 'fee': 0})])
             else:
-                named_graph.add_edges_from([(a, b, {'road': distance_ab, 'time': distance_ab / speed_ab, 'fee': 0}),
-                                            (b, a, {'road': distance_ab, 'time': distance_ab / speed_ab, 'fee': 0})])
+                named_graph.add_edges_from([(a, b, {'road': distance_ab,
+                                                    'time': _cut_off_value(distance_ab / speed_ab), 'fee': 0}),
+                                            (b, a, {'road': distance_ab,
+                                                    'time': _cut_off_value(distance_ab / speed_ab), 'fee': 0})])
 
         # Add highways randomly between strongly connected components
         scc = list(nx.strongly_connected_components(named_graph))
         for c1, c2 in combinations(scc, r=2):
-            c1 = list(c1)
-            c2 = list(c2)
             if self.__random.random() < 0.3:  # 30% prob.
-                a = c1[self.__random.choice(len(c1))]
-                b = c2[self.__random.choice(len(c2))]
-                geo_dist_ab = _distance(named_graph.nodes[a]['pos'], named_graph.nodes[b]['pos'])
-                distance_ab = geo_dist_ab * (self.__random.random() * 0.4 + 1.2)
-                speed_ab = 1.0 + self.__random.random() * .2
-                named_graph.add_edges_from([(a, b, {'road': distance_ab, 'time': distance_ab / speed_ab,
-                                                    'fee': 100 * int(distance_ab * 10)}),
-                                            (b, a, {'road': distance_ab, 'time': distance_ab / speed_ab,
-                                                    'fee': 100 * int(distance_ab * 10)})])
+                pair_with_dist = [(a, b, _distance(named_graph.nodes[a]['pos'], named_graph.nodes[b]['pos']))
+                                  for a in c1 for b in c2]
+                pair_probs = [math.exp(-p) for _, _, p in pair_with_dist]
+                pair_probs = [p / sum(pair_probs) for p in pair_probs]
+                if len(pair_with_dist) > 1:
+                    choices = self.__random.choice(len(pair_with_dist), p=pair_probs, replace=False,
+                                                   size=self.__random.integers(1, min(4, len(pair_with_dist))))
+                else:
+                    choices = [0]
+
+                for p in choices:
+                    a, b, geo_dist_ab = pair_with_dist[p]
+                    distance_ab = geo_dist_ab * (self.__random.random() * 0.4 + 1.2)
+                    speed_ab = 1.0 + self.__random.random() * .2
+                    named_graph.add_edges_from([(a, b, {'road': _cut_off_value(distance_ab),
+                                                        'time': _cut_off_value(distance_ab / speed_ab),
+                                                        'fee': int(100 * math.ceil(distance_ab * 10))}),
+                                                (b, a, {'road': _cut_off_value(distance_ab),
+                                                        'time': _cut_off_value(distance_ab / speed_ab),
+                                                        'fee': int(100 * math.ceil(distance_ab * 10))})])
 
         # Set positions to visit (try 10 times to find a path.)
         shortest_path_lengths = dict(nx.shortest_path_length(named_graph))
@@ -203,6 +224,8 @@ class RandomGeometricGraphProblem:
         logging.debug(f'Graph generated with {n} nodes, {self.__graph.number_of_edges()} edges.')
         logging.debug(f'Maximum degree: {max(d for _, d in self.__graph.degree)}')
         logging.debug(f'Places to visit: {len(place_to_visit)}')
+
+        self.__update_memory_usage()
         return problem_spec
 
     def restore_for_eval(self, spec, sub_id: int):
@@ -215,6 +238,7 @@ class RandomGeometricGraphProblem:
 
         self.__is_solvable, self.__places_to_visit = self.__subproblems[sub_id]
         self.__memory_usage = 0
+        self.__update_memory_usage()
 
     def expand(self, state: str) -> List[Tuple[str, dict]]:
         next_state_map = []
@@ -228,6 +252,7 @@ class RandomGeometricGraphProblem:
         return next_state_map
 
     def is_solution_path(self, path: List[str]) -> bool:
+        self.__update_memory_usage()
         return path[0] == self.__places_to_visit[0] \
             and path[-1] == self.__places_to_visit[-1]
 
