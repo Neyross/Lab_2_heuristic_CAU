@@ -19,7 +19,7 @@ KILOBYTES = 1024
 MEMORY_LIMIT = 1024 ** 3  # in bytes (1GB)
 TIME_LIMIT = 1800  # in seconds
 SUBPROBLEMS = 10
-PROBLEMS = 50
+PROBLEMS = 5
 
 CRITERIA = list(permutations(['road', 'time', 'fee'])) + \
            list(permutations(['road', 'time', 'fee'], r=2)) + \

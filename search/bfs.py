@@ -25,8 +25,8 @@ class Assignment:
                 return list(path)
 
             for child, _ in self.problem.expand(path[-1]):
-                # if child in reached:
-                #     continue
+                if child in reached:
+                    continue
                 frontier.put(path + (child,))
                 reached.append(child)
 
