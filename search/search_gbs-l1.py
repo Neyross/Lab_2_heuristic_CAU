@@ -42,10 +42,3 @@ class Assignment:
                 reached.append(child)
 
         return []
-
-
-
-
-
-
-
