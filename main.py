@@ -15,9 +15,11 @@ from traceback import format_exc
 from problem import RandomGeometricGraphProblem
 from search.load import get_student_assignments
 
-MEGABYTES = 1_000_000
-MEMORY_LIMIT = 1000 * MEGABYTES  # in bytes (1GB)
-SUBPROBLEMS = 5
+KILOBYTES = 1024
+MEMORY_LIMIT = 1024 ** 3  # in bytes (1GB)
+TIME_LIMIT = 1800  # in seconds
+SUBPROBLEMS = 10
+PROBLEMS = 50
 
 CRITERIA = list(permutations(['road', 'time', 'fee'])) + \
            list(permutations(['road', 'time', 'fee'], r=2)) + \
@@ -25,8 +27,10 @@ CRITERIA = list(permutations(['road', 'time', 'fee'])) + \
 
 
 def evaluate_algorithm(alg_spec, problem_spec, ranking_criteria, result_queue: Queue):
+    time_limit = int(time() + TIME_LIMIT)
     problem = RandomGeometricGraphProblem()
     problem.restore_for_eval(problem_spec, 0)
+    init_memory = problem.get_current_memory_usage()
 
     # Initialize algorithm
     if alg_spec is not None:
@@ -48,7 +52,7 @@ def evaluate_algorithm(alg_spec, problem_spec, ranking_criteria, result_queue: Q
         solution = None
         score_dict, done, failure = {}, None, None
         try:
-            solution = search_algorithm.search(ranking_criteria)
+            solution = search_algorithm.search(ranking_criteria, time_limit)
             if solution is None:
                 failure = 'None returned! (Did you implemented the algorithm?)'
         except:
@@ -71,12 +75,13 @@ def evaluate_algorithm(alg_spec, problem_spec, ranking_criteria, result_queue: Q
             except:
                 failure = format_exc()
 
-        score_dict.update(memory=problem.get_max_memory_usage())
+        score_dict.update(memory=max(problem.get_max_memory_usage() - init_memory, 0))
         logger.debug(f'Result: Failure {not not failure}, {score_dict}')
         result_queue.put((student_id, sub, failure, score_dict))
 
 
 if __name__ == '__main__':
+    # Note: If you want to see some logged result, change logging.INFO to logging.DEBUG
     logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)-12s] %(levelname)-8s %(message)s')
     prob_generator = RandomGeometricGraphProblem()
     search_algorithms = get_student_assignments()
@@ -89,8 +94,9 @@ if __name__ == '__main__':
         prev_item = None
         rank = 0
         for i, rank_info in enumerate(ranking):
-            if prev_item != rank_info['rank_tuple']:
-                prev_item = rank_info['rank_tuple']
+            rank_tuple = rank_info['rank_tuple'] + (rank_info['memory'],)
+            if prev_item != rank_tuple:
+                prev_item = rank_tuple
                 rank = i + 1
 
             if rank_info.get('failure', False):
@@ -104,12 +110,12 @@ if __name__ == '__main__':
             points[rank_info['id']] += score
 
 
-    def _print(t, ranking, criteria):
-        print(f'\nCurrent trial: {t}/100 with criteria: {criteria}')
-        print(f' StudentID | Dist@{t:03d}  Time@{t:03d}  Fee@{t:03d}  Mem@{t:03d}  Score@{t:03d} |'
+    def _print(t, s, ranking, criteria):
+        print(f'\nCurrent problem: #{t} with criteria: {criteria} / Subproblem {s+1} of {SUBPROBLEMS}')
+        print(f' StudentID    | Dist@{s+1:03d}  Time@{s+1:03d}  Fee@{s+1:03d}  Mem@{s+1:03d}  Score@{s+1:03d} |'
               f' TotalScore  Rank  Percentile')
         # 9, 8, 8, 7, 7, 9, 5, 4, 10
-        print('=' * 11 + '|' + '=' * 49 + '|' + '=' * 29)
+        print('=' * 14 + '|' + '=' * 49 + '|' + '=' * 29)
 
         total_rank_now = {}
         total_rank = 0
@@ -122,11 +128,12 @@ if __name__ == '__main__':
 
         for rank_info in ranking:
             key = rank_info['id']
+            key_print = key if len(key) < 13 else key[:9] + '...'
             t_rank, t_score = total_rank_now[key]
             percentile = int(t_rank / len(ranking) * 100)
-            print(f' {key:9s} | {rank_info.get("road", float("inf")):8.4f} '
+            print(f' {key_print:12s} | {rank_info.get("road", float("inf")):8.4f} '
                   f' {rank_info.get("time", float("inf")):8.4f}  {rank_info.get("fee", float("inf")):7.0f} '
-                  f' {rank_info["memory"] / MEGABYTES:7.1f}  {rank_info["score"]:9d} |'
+                  f' {rank_info["memory"] / KILOBYTES:7.1f}  {rank_info["score"]:9d} |'
                   f' {t_score:10d}  {t_rank:4d}  {percentile:3d}th/100')
 
             # Write-down the failures
@@ -146,26 +153,16 @@ if __name__ == '__main__':
         return proc
 
 
-    for trial in range(10):
+    for trial in range(PROBLEMS):
         prob_spec = prob_generator.reset_for_eval(SUBPROBLEMS)
         ranking_criteria = tuple(random.choice(CRITERIA))
-
         logging.info(f'Trial {trial} begins, with ranking criteria: {ranking_criteria}')
 
-        # Execute BFS first (to compute time limit)
-        bfs_start = time()
-        bfs_p = _execute(prob_spec, None, ranking_criteria)
-        bfs_p.join()
-        bfs_end = time()
-
-        time_limit = min(math.ceil((bfs_end - bfs_start) * 10), 600)  # 10 minutes
-        logging.debug(f'Time limit for the trial {trial}: {time_limit} sec')
-
         # Execute other algorithms
-        results = {(k, s): {'id': k,
+        results = {(k, s): {'id': k, 'failure': 'Unknown failure!',
                             'rank_tuple': tuple(float('inf') for k in ranking_criteria),
                             'memory': float('inf')}
-                   for k in search_algorithms + ['__BFS__']
+                   for k in search_algorithms
                    for s in range(SUBPROBLEMS)}
         processes = []
         algorithms_to_run = search_algorithms.copy()
@@ -181,20 +178,24 @@ if __name__ == '__main__':
             for p, begin in processes:
                 if not p.is_alive():
                     continue
-                if begin + time_limit < time():
+                if begin + TIME_LIMIT < time():
                     p.terminate()
                     exceed_limit.add(p.alg_id)
                     logging.info(f'[TIMEOUT] {p.alg_id} / '
-                                 f'Process is running more than {time_limit} sec, from ts={begin}; now={time()}')
+                                 f'Process is running more than {TIME_LIMIT} sec, from ts={begin}; now={time()}')
                 else:
-                    p_bytes = 0 #pu.Process(p.pid).memory_info().rss
-                    if p_bytes > MEMORY_LIMIT:
-                        p.terminate()
-                        exceed_limit.add(p.alg_id)
-                        logging.info(f'[MEM LIMIT] {p.alg_id} / '
-                                     f'Process consumed memory more than {MEMORY_LIMIT} sec (used: {p_bytes})')
-                    else:
-                        new_proc_list.append((p, begin))
+                    try:
+                        p_bytes = 0 #pu.Process(p.pid).memory_info().rss
+                        if p_bytes > MEMORY_LIMIT:
+                            p.terminate()
+                            exceed_limit.add(p.alg_id)
+                            logging.info(f'[MEM LIMIT] {p.alg_id} / '
+                                         f'Process consumed memory more than {MEMORY_LIMIT} sec (used: {p_bytes})')
+                        else:
+                            new_proc_list.append((p, begin))
+                    except ValueError:
+                        continue
+
             processes = new_proc_list
 
             if len(processes) >= process_count:
@@ -208,6 +209,7 @@ if __name__ == '__main__':
                 if f is None:
                     s.update(rank_tuple=tuple(s.get(k, float('inf')) for k in ranking_criteria))
                     results[(alg_id, sub)].update(s)
+                    results[(alg_id, sub)]['failure'] = False
                 else:
                     results[(alg_id, sub)]['failure'] = f'Trial #{trial}: ' + f
             else:
@@ -219,4 +221,4 @@ if __name__ == '__main__':
             results_sub = [d for (_, s), d in results.items() if s == sub]
             results_sub = sorted(results_sub, key=lambda d: d['rank_tuple'] + (d['memory'],))
             _give_rank_scores(results_sub)
-            _print(trial, results_sub, ranking_criteria)
+            _print(trial, sub, results_sub, ranking_criteria)

@@ -8,7 +8,7 @@ class Assignment:
     def __init__(self, problem: RandomGeometricGraphProblem):
         self.problem = problem
 
-    def search(self, criteria: tuple) -> List[str]:
+    def search(self, criteria: tuple, time_limit: int) -> List[str]:
         """
         Your documentation should contain the following things:
         - Which algorithm that you designed?
@@ -25,8 +25,8 @@ class Assignment:
                 return list(path)
 
             for child, _ in self.problem.expand(path[-1]):
-                if child in reached:
-                    continue
+                # if child in reached:
+                #     continue
                 frontier.put(path + (child,))
                 reached.append(child)
 

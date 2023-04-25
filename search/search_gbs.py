@@ -28,7 +28,7 @@ class Assignment:
                         for d in destinations if d != start_place]
         return min(dist_to_dest)
 
-    def search(self, criteria: tuple) -> List[str]:
+    def search(self, criteria: tuple, time_limit: int) -> List[str]:
         frontier = PriorityQueue()
         frontier.put(State(self.heuristic(self.problem.initial_state, self.problem.places_to_visit),
                            (self.problem.initial_state,)))
