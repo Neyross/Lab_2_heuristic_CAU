@@ -17,7 +17,7 @@ class Assignment:
     def __init__(self, problem: RandomGeometricGraphProblem):
         self.problem = problem
 
-    def search(self, criteria: tuple) -> List[str]:
+    def search(self, criteria: tuple, time_limit) -> List[str]:
         """
         Just a PriorityQueue that goes with the lowest added cost of criterias
         """
@@ -47,4 +47,3 @@ class Assignment:
         for criter in criteria:
             cost += self.problem.get_cost_of(current, child, criter)
         return cost
-
