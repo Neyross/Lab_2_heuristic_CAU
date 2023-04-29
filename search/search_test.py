@@ -28,9 +28,11 @@ class Assignment:
         goal = [State(float(maxsize), self.problem.initial_state)]
         while not frontier.empty():
             state = frontier.get()
+            nb_goal = 0
             if self.problem.is_solution_path(state.path):
                 if state.cost < goal[0].cost:
                     goal[0] = state
+                    nb_goal += 1
             childs = self.problem.expand(state.path[-1])
             for child, _ in childs:
                 if child in reached:
@@ -44,10 +46,7 @@ class Assignment:
     #get the cost of the action
     def cost_of(self, current, child, criteria):
         cost = 0
-        weight = 10
-        for criter in criteria:
-            if criter == "fee":
-                weight = weight / 100
-            cost += self.problem.get_cost_of(current, child, criter) * weight
-            weight = 1
+        if len(criteria) > 1 and criteria[0] == "fee":
+            cost += self.problem.get_cost_of(current, child, criteria[1])
+        cost += self.problem.get_cost_of(current, child, criteria[0])
         return cost

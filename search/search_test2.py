@@ -48,6 +48,8 @@ class Assignment:
         for criter in criteria:
             if criter == "fee":
                 weight = weight / 100
+            if criter == "time":
+                weight = weight / 10
             cost += self.problem.get_cost_of(current, child, criter) * weight
             weight = 1
         return cost
