@@ -10,43 +10,68 @@ STUDENT_ID = Path(__file__).stem.split('_')[1]
 
 @dataclass(order=True)
 class State:
-    cost: float  # cost of getting there without depth
+    score: float
+    cost: float  # cost of getting there without heuristic
     path: tuple
 
 class Assignment:
     def __init__(self, problem: RandomGeometricGraphProblem):
         self.problem = problem
 
+    def heuristic(self, state: str) -> float:
+
+        goal = self.problem.places_to_visit[-1]
+        s1, s2 = self.problem.get_position_of(state)
+        g1, g2 = self.problem.get_position_of(goal)
+
+        h = abs(s1 - g1) + abs(s2 - g2)
+        return h
+
     def search(self, criteria: tuple, time_limit) -> List[str]:
         """
-        Just a PriorityQueue that goes with the lowest added cost of criterias
+        Just a PriorityQueue that goes with the lowestcost for first criteria
         """
         frontier = PriorityQueue()
-        frontier.put(State(0.0, (self.problem.initial_state,)))
+        frontier.put(State(0.0, 0.0, (self.problem.initial_state,)))
         reached = [self.problem.initial_state]
-        #stores the current lowest cost for a goal
-        goal = [State(float(maxsize), self.problem.initial_state)]
         while not frontier.empty():
             state = frontier.get()
-            nb_goal = 0
-            if self.problem.is_solution_path(state.path):
-                if state.cost < goal[0].cost:
-                    goal[0] = state
-                    nb_goal += 1
             childs = self.problem.expand(state.path[-1])
+            reached.append(state.path[-1])
             for child, _ in childs:
+                if self.problem.is_solution_path(state.path + (child,)):
+                    return state.path + (child,)
                 if child in reached:
                     continue
-                # get the added cost of the state ie if criteria road and fee get road + fee cost
                 current_cost = state.cost + self.cost_of(state.path[-1], child, criteria)
-                frontier.put(State(current_cost, state.path + (child,)))
-                reached.append(child)
-        return goal[0].path
+                frontier.put(State(current_cost + self.heuristic(child), current_cost , state.path + (child,)))
+        return []
 
     #get the cost of the action
     def cost_of(self, current, child, criteria):
         cost = 0
-        if len(criteria) > 1 and criteria[0] == "fee":
-            cost += self.problem.get_cost_of(current, child, criteria[1])
-        cost += self.problem.get_cost_of(current, child, criteria[0])
+        if criteria[0] == "fee":
+            if len(criteria) > 1:
+                if criteria[1] == "road":
+                    cost += self.problem.get_cost_of(current, child, criteria[1]) * 10
+                else:
+                    cost += self.problem.get_cost_of(current, child, criteria[1]) * 1
+            else:
+                cost += self.problem.get_cost_of(current, child, "road") * 10
+                cost += self.problem.get_cost_of(current, child, "time") * 1
+            cost += self.problem.get_cost_of(current, child, criteria[0]) * 0.1
+        elif criteria[0] == "road":
+            cost += self.problem.get_cost_of(current, child, criteria[0]) * 10
+        else:
+            cost += self.problem.get_cost_of(current, child, criteria[0]) * 10
         return cost
+
+    def child_in_queue(self, child, frontier: PriorityQueue, cost, path) -> bool:
+        for i in frontier.queue:
+            if i.path[-1] == child:
+                if i.cost > cost:
+                    del i
+                    frontier.put(State(cost + self.heuristic(child), cost, path))
+                    return True
+
+        return False
